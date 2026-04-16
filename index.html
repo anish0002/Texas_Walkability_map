@@ -1,316 +1,156 @@
-<!doctype html>
-<html lang="en">
-    <head>
-        <meta charset="utf-8">
-        <meta http-equiv="X-UA-Compatible" content="IE=edge">
-        <meta name="viewport" content="initial-scale=1,user-scalable=no,maximum-scale=1,width=device-width">
-        <meta name="mobile-web-app-capable" content="yes">
-        <meta name="apple-mobile-web-app-capable" content="yes">
-        <link rel="stylesheet" href="css/leaflet.css">
-        <link rel="stylesheet" href="css/L.Control.Layers.Tree.css">
-        <link rel="stylesheet" href="css/qgis2web.css">
-        <link rel="stylesheet" href="css/fontawesome-all.min.css">
-        <link rel="stylesheet" href="css/leaflet.photon.css">
-        <style>
-        html, body, #map {
-            width: 100%;
-            height: 100%;
-            padding: 0;
-            margin: 0;
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Texas Walkability Map</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { font-family: sans-serif; margin: 0; }
+        #map { height: 100vh; width: 100%; background: #f8f8f8; }
+        .info-box { background: white; padding: 12px; border-radius: 5px; line-height: 1.6; }
+        .score-val { float: right; font-weight: bold; margin-left: 20px; }
+        .score-bar-wrap { clear: both; margin-top: 4px; background: #eee; border-radius: 4px; height: 8px; }
+        .score-bar { height: 8px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        // 1. Initialize map centered on Texas
+        const map = L.map('map').setView([30.61, -96.34], 11);
+
+        // 2. Tile layers (basemaps)
+        const cartoLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap &copy; CARTO'
+        }).addTo(map);
+
+        const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        });
+
+        const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: '&copy; Esri'
+        });
+
+        const tileMaps = {
+            "CARTO Voyager": cartoLayer,
+            "OpenStreetMap": osmLayer,
+            "Satellite": satelliteLayer
+        };
+
+        // 3. Helper: format 0–1 score as percentage string
+        function fmt(v) {
+            return v != null ? (v * 100).toFixed(1) + '%' : 'N/A';
         }
-        </style>
-        <title></title>
-    </head>
-    <body>
-        <div id="map">
-        </div>
-        <script src="js/qgis2web_expressions.js"></script>
-        <script src="js/leaflet.js"></script>
-        <script src="js/L.Control.Layers.Tree.min.js"></script>
-        <script src="js/leaflet.rotatedMarker.js"></script>
-        <script src="js/leaflet.pattern.js"></script>
-        <script src="js/leaflet-hash.js"></script>
-        <script src="js/Autolinker.min.js"></script>
-        <script src="js/rbush.min.js"></script>
-        <script src="js/labelgun.min.js"></script>
-        <script src="js/labels.js"></script>
-        <script src="js/leaflet.photon.js"></script>
-        <script src="data/Joinedlayer_1.js"></script>
-        <script>
-        var map = L.map('map', {
-            zoomControl:false, maxZoom:28, minZoom:1
-        }).fitBounds([[25.918243653753372,-109.45147850837655],[37.83946361784081,-93.21163006775183]]);
-        var hash = new L.Hash(map);
-        map.attributionControl.setPrefix('<a href="https://github.com/tomchadwin/qgis2web" target="_blank">qgis2web</a> &middot; <a href="https://leafletjs.com" title="A JS library for interactive maps">Leaflet</a> &middot; <a href="https://qgis.org">QGIS</a>');
-        var autolinker = new Autolinker({truncate: {length: 30, location: 'smart'}});
-        // remove popup's row if "visible-with-data"
-        function removeEmptyRowsFromPopupContent(content, feature) {
-         var tempDiv = document.createElement('div');
-         tempDiv.innerHTML = content;
-         var rows = tempDiv.querySelectorAll('tr');
-         for (var i = 0; i < rows.length; i++) {
-             var td = rows[i].querySelector('td.visible-with-data');
-             var key = td ? td.id : '';
-             if (td && td.classList.contains('visible-with-data') && feature.properties[key] == null) {
-                 rows[i].parentNode.removeChild(rows[i]);
-             }
-         }
-         return tempDiv.innerHTML;
-        }
-        // modify popup if contains media
-        function addClassToPopupIfMedia(content, popup) {
-            var tempDiv = document.createElement('div');
-            tempDiv.innerHTML = content;
-            var imgTd = tempDiv.querySelector('td img');
-            if (imgTd) {
-                var src = imgTd.getAttribute('src');
-                if (/\.(jpg|jpeg|png|gif|bmp|webp|avif)$/i.test(src)) {
-                    popup._contentNode.classList.add('media');
-                    setTimeout(function() {
-                        popup.update();
-                    }, 10);
-                } else if (/\.(mp3|wav|ogg|aac)$/i.test(src)) {
-                    var audio = document.createElement('audio');
-                    audio.controls = true;
-                    audio.src = src;
-                    imgTd.parentNode.replaceChild(audio, imgTd);
-                    popup._contentNode.classList.add('media');
-                    setTimeout(function() {
-                        popup.setContent(tempDiv.innerHTML);
-                        popup.update();
-                    }, 10);
-                } else if (/\.(mp4|webm|ogg|mov)$/i.test(src)) {
-                    var video = document.createElement('video');
-                    video.controls = true;
-                    video.src = src;
-                    video.style.width = "400px";
-                    video.style.height = "300px";
-                    video.style.maxHeight = "60vh";
-                    video.style.maxWidth = "60vw";
-                    imgTd.parentNode.replaceChild(video, imgTd);
-                    popup._contentNode.classList.add('media');
-                    // Aggiorna il popup quando il video carica i metadati
-                    video.addEventListener('loadedmetadata', function() {
-                        popup.update();
-                    });
-                    setTimeout(function() {
-                        popup.setContent(tempDiv.innerHTML);
-                        popup.update();
-                    }, 10);
-                } else {
-                    popup._contentNode.classList.remove('media');
+
+        // 4. Layer groups for data overlays
+        const overallLayer  = L.layerGroup().addTo(map);
+        const healthLayer   = L.layerGroup();
+        const foodLayer     = L.layerGroup();
+        const infraLayer    = L.layerGroup();
+        const transitLayer  = L.layerGroup();
+
+        // 5. Load GeoJSON
+        fetch('WalkibilityScore1.geojson?t=' + new Date().getTime())
+            .then(res => res.json())
+            .then(data => {
+
+                // ── Compute quantile breaks (5 classes) ──
+                const values = data.features
+                    .map(f => f.properties.Final_walkscore)
+                    .filter(v => v != null && !isNaN(v))
+                    .sort((a, b) => a - b);
+
+                const numClasses = 5;
+                const breaks = [];
+                for (let i = 1; i < numClasses; i++) {
+                    const idx = Math.floor(i * values.length / numClasses);
+                    breaks.push(values[idx]);
                 }
-            } else {
-                popup._contentNode.classList.remove('media');
-            }
-        }
-        var zoomControl = L.control.zoom({
-            position: 'topleft'
-        }).addTo(map);
-        var bounds_group = new L.featureGroup([]);
-        function setBounds() {
-            map.setMaxBounds(map.getBounds());
-            map.setMinZoom(map.getZoom());
-        }
-        map.createPane('pane_OpenStreetMap_0');
-        map.getPane('pane_OpenStreetMap_0').style.zIndex = 400;
-        var layer_OpenStreetMap_0 = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            pane: 'pane_OpenStreetMap_0',
-            opacity: 1.0,
-            attribution: '',
-            minZoom: 1,
-            maxZoom: 28,
-            minNativeZoom: 0,
-            maxNativeZoom: 19
-        });
-        layer_OpenStreetMap_0;
-        map.addLayer(layer_OpenStreetMap_0);
-        function pop_Joinedlayer_1(feature, layer) {
-            var popupContent = '<table>\
-                    <tr>\
-                        <td class="visible-with-data" id="Hosp_count" colspan="2"><strong>Hosp_count</strong><br />' + (feature.properties['Hosp_count'] !== null ? autolinker.link(String(feature.properties['Hosp_count']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                    <tr>\
-                        <td class="visible-with-data" id="LENGTH_sidewalk" colspan="2"><strong>LENGTH_sidewalk</strong><br />' + (feature.properties['LENGTH_sidewalk'] !== null ? autolinker.link(String(feature.properties['LENGTH_sidewalk']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                    <tr>\
-                        <td class="visible-with-data" id="COUNT_sidewalk" colspan="2"><strong>COUNT_sidewalk</strong><br />' + (feature.properties['COUNT_sidewalk'] !== null ? autolinker.link(String(feature.properties['COUNT_sidewalk']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                    <tr>\
-                        <td class="visible-with-data" id="Public_Transportation" colspan="2"><strong>Public_Transportation</strong><br />' + (feature.properties['Public_Transportation'] !== null ? autolinker.link(String(feature.properties['Public_Transportation']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                    <tr>\
-                        <td class="visible-with-data" id="food_n" colspan="2"><strong>food_n</strong><br />' + (feature.properties['food_n'] !== null ? autolinker.link(String(feature.properties['food_n']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                    <tr>\
-                        <td class="visible-with-data" id="Final_walkscore" colspan="2"><strong>Final_walkscore</strong><br />' + (feature.properties['Final_walkscore'] !== null ? autolinker.link(String(feature.properties['Final_walkscore']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                </table>';
-            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
-			layer.on('popupopen', function(e) {
-				addClassToPopupIfMedia(content, e.popup);
-			});
-			layer.bindPopup(content, { maxHeight: 400 });
-        }
+                console.log('Quantile breaks:', breaks);
 
-        function style_Joinedlayer_1_0(feature) {
-            if (feature.properties['Final_walkscore'] >= -0.000000 && feature.properties['Final_walkscore'] <= 0.051978 ) {
-                return {
-                pane: 'pane_Joinedlayer_1',
-                opacity: 1,
-                color: 'rgba(35,35,35,0.7)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1.0, 
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(215,25,28,0.7)',
-                interactive: true,
-            }
-            }
-            if (feature.properties['Final_walkscore'] >= 0.051978 && feature.properties['Final_walkscore'] <= 0.139070 ) {
-                return {
-                pane: 'pane_Joinedlayer_1',
-                opacity: 1,
-                color: 'rgba(35,35,35,0.7)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1.0, 
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(253,174,97,0.7)',
-                interactive: true,
-            }
-            }
-            if (feature.properties['Final_walkscore'] >= 0.139070 && feature.properties['Final_walkscore'] <= 0.245497 ) {
-                return {
-                pane: 'pane_Joinedlayer_1',
-                opacity: 1,
-                color: 'rgba(35,35,35,0.7)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1.0, 
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(255,255,191,0.7)',
-                interactive: true,
-            }
-            }
-            if (feature.properties['Final_walkscore'] >= 0.245497 && feature.properties['Final_walkscore'] <= 0.436933 ) {
-                return {
-                pane: 'pane_Joinedlayer_1',
-                opacity: 1,
-                color: 'rgba(35,35,35,0.7)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1.0, 
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(171,217,233,0.7)',
-                interactive: true,
-            }
-            }
-            if (feature.properties['Final_walkscore'] >= 0.436933 && feature.properties['Final_walkscore'] <= 0.860000 ) {
-                return {
-                pane: 'pane_Joinedlayer_1',
-                opacity: 1,
-                color: 'rgba(35,35,35,0.7)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1.0, 
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(44,123,182,0.7)',
-                interactive: true,
-            }
-            }
-        }
-        map.createPane('pane_Joinedlayer_1');
-        map.getPane('pane_Joinedlayer_1').style.zIndex = 401;
-        map.getPane('pane_Joinedlayer_1').style['mix-blend-mode'] = 'normal';
-        var layer_Joinedlayer_1 = new L.geoJson(json_Joinedlayer_1, {
-            attribution: '',
-            interactive: true,
-            dataVar: 'json_Joinedlayer_1',
-            layerName: 'layer_Joinedlayer_1',
-            pane: 'pane_Joinedlayer_1',
-            onEachFeature: pop_Joinedlayer_1,
-            style: style_Joinedlayer_1_0,
-        });
-        bounds_group.addLayer(layer_Joinedlayer_1);
-        map.addLayer(layer_Joinedlayer_1);
-        const url = {"Nominatim OSM": "https://nominatim.openstreetmap.org/search?format=geojson&addressdetails=1&",
-        "France BAN": "https://api-adresse.data.gouv.fr/search/?"}
-        var photonControl = L.control.photon({
-            url: url["Nominatim OSM"],
-            feedbackLabel: '',
-            position: 'topleft',
-            includePosition: true,
-            initial: true,
-            // resultsHandler: myHandler,
-        }).addTo(map);
-        photonControl._container.childNodes[0].style.borderRadius="10px"
-        // Create a variable to store the geoJSON data
-        var x = null;
-        // Create a variable to store the marker
-        var marker = null;
-        // Add an event listener to the Photon control to create a marker from the returned geoJSON data
-        var z = null;
-        photonControl.on('selected', function(e) {
-            console.log(photonControl.search.resultsContainer);
-            if (x != null) {
-                map.removeLayer(obj3.marker);
-                map.removeLayer(x);
-            }
-            obj2.gcd = e.choice;
-            x = L.geoJSON(obj2.gcd).addTo(map);
-            var label = typeof obj2.gcd.properties.label === 'undefined' ? obj2.gcd.properties.display_name : obj2.gcd.properties.label;
-            obj3.marker = L.marker(x.getLayers()[0].getLatLng()).bindPopup(label).addTo(map);
-            map.setView(x.getLayers()[0].getLatLng(), 17);
-            z = typeof e.choice.properties.label === 'undefined'? e.choice.properties.display_name : e.choice.properties.label;
-            console.log(e);
-            e.target.input.value = z;
-        });
-        var search = document.getElementsByClassName("leaflet-photon leaflet-control")[0];
-        search.classList.add("leaflet-control-search")
-        search.style.display = "flex";
-        search.style.backgroundColor="rgba(255,255,255,0.5)" 
+                // ── Color function: Red → Orange → Yellow → Green → Blue ──
+                function getColor(s) {
+                    if (s == null || isNaN(s)) return '#cccccc';
+                    return s > breaks[3] ? '#2166ac' :   // Blue   (highest)
+                           s > breaks[2] ? '#1a9641' :   // Green
+                           s > breaks[1] ? '#fee08b' :   // Yellow
+                           s > breaks[0] ? '#fdae61' :   // Orange
+                                           '#d73027';    // Red    (lowest)
+                }
 
-        // Create the new button element
-        var button = document.createElement("div");
-        button.id = "gcd-button-control";
-        button.className = "gcd-gl-btn fa fa-search search-button";
+                // ── Color bar for popup ──
+                function bar(v) {
+                    const pct = ((v || 0) * 100).toFixed(1);
+                    return `<div class="score-bar-wrap"><div class="score-bar" style="width:${pct}%;background:${getColor(v||0)}"></div></div>`;
+                }
 
-        // Insert the button at the beginning of the search control
-        search.insertBefore(button, search.firstChild);
-        last = search.lastChild;
-        last.style.display = "none";
-        button.addEventListener("click", function (e) {
-            if (last.style.display === "none") {
-                last.style.display = "block";
-            } else {
-                last.style.display = "none";
-            }
-        });
-        var overlaysTree = [
-            {label: 'Joined layer<br /><table><tr><td style="text-align: center;"><img src="legend/Joinedlayer_1_000520.png" /></td><td>0 - 0.052</td></tr><tr><td style="text-align: center;"><img src="legend/Joinedlayer_1_005201391.png" /></td><td>0.052 - 0.139</td></tr><tr><td style="text-align: center;"><img src="legend/Joinedlayer_1_013902452.png" /></td><td>0.139 - 0.245</td></tr><tr><td style="text-align: center;"><img src="legend/Joinedlayer_1_024504373.png" /></td><td>0.245 - 0.437</td></tr><tr><td style="text-align: center;"><img src="legend/Joinedlayer_1_04370864.png" /></td><td>0.437 - 0.86</td></tr></table>', layer: layer_Joinedlayer_1},
-            {label: "OpenStreetMap", layer: layer_OpenStreetMap_0, radioGroup: 'bm' },]
-        var lay = L.control.layers.tree(null, overlaysTree,{
-            //namedToggle: true,
-            //selectorBack: false,
-            //closedSymbol: '&#8862; &#x1f5c0;',
-            //openedSymbol: '&#8863; &#x1f5c1;',
-            //collapseAll: 'Collapse all',
-            //expandAll: 'Expand all',
-            collapsed: true,
-        });
-        lay.addTo(map);
-        setBounds();
-        </script>        
-    </body>
+                // ── Build GeoJSON layer ──
+                const geoLayer = L.geoJSON(data, {
+                    style: (f) => ({
+                        fillColor: getColor(f.properties.Final_walkscore),
+                        weight: 1, opacity: 1, color: 'white', fillOpacity: 0.7
+                    }),
+                    onEachFeature: (f, l) => {
+                        const p = f.properties;
+                        const popupContent = `
+                            <div class="info-box">
+                                <span style="font-size:0.8em;color:#666;">Cell ID: ${p.fid} &nbsp;|&nbsp; Row ${p.row_index}, Col ${p.col_index}</span><br>
+                                <strong style="font-size:1.2em;">Walkability Score</strong><hr>
+                                <b>Overall:</b> <span class="score-val">${fmt(p.Final_walkscore)}</span>${bar(p.Final_walkscore)}
+                                <b>Hospital Access:</b> <span class="score-val">${fmt(p.hosp_n)}</span>${bar(p.hosp_n)}
+                                <b>Food Access:</b> <span class="score-val">${fmt(p.food_n)}</span>${bar(p.food_n)}
+                                <b>Sidewalk / Infra:</b> <span class="score-val">${fmt(p.walk_n)}</span>${bar(p.walk_n)}
+                                <b>Transit:</b> <span class="score-val">${fmt(p.transit_n)}</span>${bar(p.transit_n)}
+                            </div>`;
+                        l.bindPopup(popupContent);
+
+                        L.geoJSON(f, { style: { fillColor: getColor(p.Final_walkscore), fillOpacity: 0.7, weight: 1, color: 'white' } }).bindPopup(popupContent).addTo(overallLayer);
+                        L.geoJSON(f, { style: { fillColor: getColor(p.hosp_n),          fillOpacity: 0.7, weight: 1, color: 'white' } }).bindPopup(popupContent).addTo(healthLayer);
+                        L.geoJSON(f, { style: { fillColor: getColor(p.food_n),          fillOpacity: 0.7, weight: 1, color: 'white' } }).bindPopup(popupContent).addTo(foodLayer);
+                        L.geoJSON(f, { style: { fillColor: getColor(p.walk_n),          fillOpacity: 0.7, weight: 1, color: 'white' } }).bindPopup(popupContent).addTo(infraLayer);
+                        L.geoJSON(f, { style: { fillColor: getColor(p.transit_n),       fillOpacity: 0.7, weight: 1, color: 'white' } }).bindPopup(popupContent).addTo(transitLayer);
+                    }
+                });
+
+                // 6. Data overlay maps
+                const overlayMaps = {
+                    "View: Overall Score":       overallLayer,
+                    "View: Hospital Access":     healthLayer,
+                    "View: Food Access":         foodLayer,
+                    "View: Sidewalk / Infra":    infraLayer,
+                    "View: Transit":             transitLayer
+                };
+
+                // 7. Layer control
+                L.control.layers(tileMaps, overlayMaps, { collapsed: false }).addTo(map);
+
+                // 8. Legend
+                const legend = L.control({ position: 'bottomright' });
+                legend.onAdd = () => {
+                    const div = L.DomUtil.create('div', 'info-box');
+                    div.innerHTML = '<strong>Score (Quantile)</strong><br>';
+                    const ranges = [
+                        { min: breaks[3], max: 1,         color: '#2166ac', label: 'Blue (Best)' },
+                        { min: breaks[2], max: breaks[3],  color: '#1a9641', label: 'Green' },
+                        { min: breaks[1], max: breaks[2],  color: '#fee08b', label: 'Yellow' },
+                        { min: breaks[0], max: breaks[1],  color: '#fdae61', label: 'Orange' },
+                        { min: 0,         max: breaks[0],  color: '#d73027', label: 'Red (Worst)' }
+                    ];
+                    ranges.forEach(r => {
+                        div.innerHTML += `<span style="display:inline-block;width:14px;height:14px;background:${r.color};border-radius:3px;margin-right:6px;vertical-align:middle;"></span>${(r.min*100).toFixed(1)}–${(r.max*100).toFixed(1)}%<br>`;
+                    });
+                    return div;
+                };
+                legend.addTo(map);
+
+                // 9. Zoom to data extent
+                map.fitBounds(geoLayer.getBounds());
+            })
+            .catch(err => console.error("Fetch error:", err));
+    });
+    </script>
+</body>
 </html>
